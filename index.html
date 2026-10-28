@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>将棋ゲームの画面から、局面のSFENを取り出すアプリの作成記録</title>
+<meta name="description" content="ボタンを1つ押すと、将棋ゲームの画面を読み取り、局面をSFENの1行にしてコピーするアプリを作りました。">
+<style>
+:root{
+  --paper:#EEF1EE; --raised:#F7F9F7; --ink:#171C19; --dim:#5C6660;
+  --rule:#C7CFC8; --hair:#DDE3DE;
+  --accent:#14615A; --accent-soft:#DCEAE7;
+  --warn:#9C3B2A; --warn-soft:#F2E1DC;
+  --grid:rgba(23,28,25,.045);
+  --mincho:"Yu Mincho","YuMincho","Hiragino Mincho ProN","HiraMinProN-W3","Noto Serif JP",serif;
+  --gothic:"Yu Gothic","YuGothic","Hiragino Sans","Hiragino Kaku Gothic ProN","Noto Sans JP",sans-serif;
+  --mono:ui-monospace,"SFMono-Regular",Menlo,Consolas,"BIZ UDGothic",monospace;
+}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){
+    --paper:#121613; --raised:#1A211C; --ink:#E4E9E4; --dim:#98A39C;
+    --rule:#2E3831; --hair:#232B26;
+    --accent:#58B7A9; --accent-soft:#12332F;
+    --warn:#D8785F; --warn-soft:#33201B;
+    --grid:rgba(228,233,228,.05);
+  }
+}
+:root[data-theme="dark"]{
+  --paper:#121613; --raised:#1A211C; --ink:#E4E9E4; --dim:#98A39C;
+  --rule:#2E3831; --hair:#232B26;
+  --accent:#58B7A9; --accent-soft:#12332F;
+  --warn:#D8785F; --warn-soft:#33201B;
+  --grid:rgba(228,233,228,.05);
+}
+
+*{box-sizing:border-box}
+body{
+  margin:0; background-color:var(--paper); color:var(--ink);
+  font-family:var(--gothic); font-size:16.5px; line-height:1.95;
+  background-image:linear-gradient(var(--grid) 1px,transparent 1px),
+                   linear-gradient(90deg,var(--grid) 1px,transparent 1px);
+  background-size:28px 28px;
+  -webkit-font-smoothing:antialiased;
+}
+.wrap{max-width:1020px;margin:0 auto;padding:0 24px 120px}
+.col{max-width:640px}
+h1,h2,h3{font-family:var(--mincho);font-weight:700;text-wrap:balance;line-height:1.4}
+p{margin:0 0 1.4em}
+strong{font-weight:700}
+a{color:var(--accent);text-decoration:underline;text-underline-offset:3px}
+
+/* ---- hero ---- */
+.hero{padding:88px 0 56px;border-bottom:1px solid var(--rule)}
+.eyebrow{font-family:var(--mono);font-size:11px;letter-spacing:.22em;
+  color:var(--dim);margin:0 0 26px}
+h1{font-size:clamp(28px,5vw,46px);margin:0 0 22px;letter-spacing:.01em}
+.lede{font-size:18px;color:var(--dim);max-width:620px;margin:0}
+
+/* ---- sections ---- */
+section{padding:56px 0;border-bottom:1px solid var(--hair)}
+section:last-of-type{border-bottom:0}
+h2{font-size:clamp(21px,3vw,27px);margin:0 0 26px}
+h3{font-size:17px;margin:34px 0 12px}
+
+/* ---- figures ---- */
+figure{margin:34px 0}
+figure img{max-width:100%;height:auto;display:block;border:1px solid var(--rule)}
+figcaption{font-size:13px;color:var(--dim);margin-top:10px;line-height:1.7}
+
+/* ---- 盤の画像と説明を並べる ---- */
+.pair{display:grid;grid-template-columns:340px 1fr;gap:28px;align-items:start;margin:34px 0}
+@media (max-width:760px){.pair{grid-template-columns:1fr}}
+.pair figure{margin:0}
+.pair img{width:100%}
+.pair .note{font-size:14.5px;color:var(--dim);line-height:1.9}
+.pair .note strong{color:var(--ink)}
+
+/* ---- SFEN の1行 ---- */
+.sfen{display:block;font-family:var(--mono);font-size:13px;line-height:1.7;word-break:break-all;
+  background:var(--raised);border:1px solid var(--rule);padding:12px 14px;margin:0 0 1.4em;color:var(--ink)}
+code{font-family:var(--mono);font-size:.9em}
+
+/* ---- 手順 ---- */
+ul{margin:0 0 1.4em;padding-left:1.15em}
+li{margin-bottom:.5em}
+ol{margin:0 0 1.4em;padding:0;list-style:none;counter-reset:step}
+ol li{counter-increment:step;position:relative;padding-left:2.1em;margin-bottom:.55em}
+ol li::before{content:counter(step);position:absolute;left:0;top:.28em;
+  font-family:var(--mono);font-size:12.5px;color:var(--accent)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="hero">
+  <p class="eyebrow">開発記録 / 画像認識 × 将棋</p>
+  <h1>将棋ゲームの画面から、<br>局面のSFENを取り出すアプリの作成記録</h1>
+  <p class="lede">対局を振り返るとき、いま画面に出ている局面を、そのまま検討ソフトに貼りたいと思いました。ボタンを1つ押すと、将棋ゲームの画面を読み取り、局面をSFENの1行にしてコピーするアプリを作りました。</p>
+</header>
+
+<section>
+  <div class="pair">
+    <figure>
+      <img src="images/board.jpg" width="580" height="640" alt="将棋ゲームの対局画面から切り出した盤。23手目の局面">
+    </figure>
+    <div class="note">
+      <p><strong>この盤を読み取ると、次の1行がコピーされます。</strong></p>
+      <code class="sfen">1n1k2+P1l/lrs2g1+R1/pppp4p/4p1p2/5P3/2P6/PP1PP1P1P/1B7/LNSGKGSNL b BGSN2P 23</code>
+      <p>盤の外にある持ち駒（先手の角・金・銀・桂と歩2枚）も読み、手番と手数まで含めています。lishogi の盤面入力や棋譜解析に、そのまま貼り付けて使えます。</p>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="col">
+    <h2>１　作りたかったもの</h2>
+    <p><strong>画面に出ている局面を、手で並べ直さずに検討ソフトへ移したいと考えました。</strong></p>
+    <p>将棋ゲームで指したあと、感想戦の画面で局面をたどっていると、「この局面を検討ソフトで調べたい」と思うことがあります。そのたびに検討ソフトの盤へ駒を1枚ずつ並べ直すのは手間がかかり、並べ間違いも起きます。</p>
+    <p>局面を移すには、SFENという書き方を使います。局面を1行の文字で表すもので、多くの検討ソフトが読み込めます。平手の初期局面は次のように書きます。</p>
+    <code class="sfen">lnsgkgsnl/1r5b1/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL b - 1</code>
+    <p>盤を上の段から順に書き、大文字が先手の駒、小文字が後手の駒、数字は空いているマスの数です。そのあとに手番（<code>b</code> が先手、<code>w</code> が後手）、持ち駒（無ければ <code>-</code>）、手数が続きます。</p>
+    <p>機能は「いま画面に出ている局面のSFENを取る」ことだけに絞りました。対局を最初から記録する機能や、ファイルに保存する機能は付けていません。貼り付ければ用が済むので、ファイルも残しません。</p>
+  </div>
+</section>
+
+<section>
+  <div class="col">
+    <h2>２　仕組み</h2>
+    <p><strong>ゲームの画面を撮り、盤・持ち駒・手番・手数を読んで、局面として成り立つかを確かめてからコピーします。</strong></p>
+    <figure>
+      <img src="images/window.png" width="322" height="88" alt="アプリの操作窓。SFENをコピーのボタンと、コピー済み 23手目と出た結果の欄">
+      <figcaption>操作窓。［SFENをコピー］を押すと、下の欄に結果が出ます。実際はこれより小さく、大きさは自由に変えられます。</figcaption>
+    </figure>
+    <p>ボタンを押してからコピーされるまでは、次の手順です。</p>
+    <ol>
+      <li>将棋ゲームのウィンドウだけを撮ります。ほかのウィンドウの後ろに隠れていても撮れるので、ゲームの画面を前に出す必要はありません。</li>
+      <li>盤の81マスを1つずつ、駒の字の見本と照合します。字の向きで先手の駒か後手の駒かを、字の色で成っているかを見分けます。</li>
+      <li>盤の外にある持ち駒と、その枚数の数字を読みます。</li>
+      <li>手番は、直前に指された駒のマス（赤く光っています）から決めます。手数は、画面に出ている「○手目」の数字を読みます。</li>
+      <li>局面として成り立つかを確かめてから、クリップボードに入れます。</li>
+    </ol>
+    <p>押してからコピーされるまでは、2秒ほどです。</p>
+  </div>
+</section>
+
+<section>
+  <div class="col">
+    <h2>３　注意したこと</h2>
+    <p>読み違えたまま貼り付けると、違う局面を検討することになります。そこで、コピーする前に次のことを確かめ、ひとつでも合わなければコピーせずに、エラー音とともに理由を表示します。</p>
+    <ul>
+      <li>駒の数が、種類ごとに合っているか（歩は18枚、玉は2枚など。成駒は元の駒として数えます）</li>
+      <li>二歩になっていないか</li>
+      <li>手番と手数の偶数・奇数が食い違っていないか</li>
+      <li>対局画面か感想戦の画面か（メニューなどの画面では「取得失敗」と出します）</li>
+    </ul>
+  </div>
+</section>
+
+<section>
+  <div class="col">
+    <h2>４　テスト</h2>
+    <p>以下の項目について確認・テストしました。</p>
+    <ul>
+      <li>駒：すべての種類の駒と成駒</li>
+      <li>盤の向き</li>
+      <li>対局画面と感想戦の画面</li>
+      <li>画面の大きさ：1280×720 と 1920×1080</li>
+    </ul>
+  </div>
+</section>
+
+<section>
+  <div class="col">
+    <h2>５　使い方</h2>
+    <ol>
+      <li>将棋ゲームで、対局画面か感想戦の画面を出す</li>
+      <li>マウスのカーソルを盤の外に出してから、［SFENをコピー］を押す</li>
+      <li>「コピー済み ○手目」と出たら、検討ソフトに貼り付ける</li>
+    </ol>
+    <p>カーソルや、カーソルを当てたときに光る駒が写ると、読み違えるおそれがあるためです。</p>
+  </div>
+</section>
+
+</div>
+</body>
+</html>
